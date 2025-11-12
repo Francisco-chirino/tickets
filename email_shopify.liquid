@@ -1,0 +1,49 @@
+<!-- 
+  COPIA Y PEGA ESTO EN SHOPIFY
+  Ruta: Configuración > Notificaciones > Confirmación de pedido
+  Pégalo donde quieras que aparezcan los códigos QR (ej. después de la lista de items).
+  
+  NOTA: Recuerda reemplazar 'https://TU-APP.onrender.com' con tu URL real.
+-->
+
+{% if line_items %}
+  <br>
+  <table class="row section">
+    <tr>
+      <td class="section__cell">
+        <center>
+          <h2 style="margin-bottom: 15px;">🎟️ Tus Entradas para el Evento</h2>
+          <p style="margin-bottom: 25px;">Presenta estos códigos QR en la entrada para acceder.</p>
+        </center>
+
+        {% for item in line_items %}
+          <!-- Filtro: Solo mostrar si el producto tiene SKU (asumiendo que es ticket) -->
+          {% if item.sku != blank %}
+            <div style="border: 2px dashed #ccc; padding: 20px; margin-bottom: 20px; border-radius: 8px; background-color: #fafafa;">
+              <h3 style="margin-top: 0;">{{ item.title }}</h3>
+              <p>Cantidad: {{ item.quantity }}</p>
+              <hr style="border: 0; border-top: 1px solid #ddd; margin: 15px 0;">
+
+              <!-- Bucle para generar un QR por cada unidad comprada -->
+              {% for i in (1..item.quantity) %}
+                {% assign ticket_idx = i %}
+                
+                <!-- Construcción del ID: TICKET-{Orden}-{Item}-{Indice} -->
+                {% assign ticket_id = "TICKET-" | append: order.id | append: "-" | append: item.id | append: "-" | append: ticket_idx %}
+                
+                <!-- Construcción de la URL del QR -->
+                {% assign qr_url = "https://TU-APP.onrender.com/generar_qr/" | append: ticket_id %}
+
+                <div style="display: inline-block; margin: 10px; text-align: center;">
+                  <p style="font-weight: bold; margin-bottom: 5px; font-size: 12px;">Entrada #{{ i }}</p>
+                  <img src="{{ qr_url }}" alt="QR Ticket" width="150" height="150" style="border: 1px solid #eee;">
+                  <p style="font-size: 10px; color: #888;">{{ ticket_id }}</p>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </td>
+    </tr>
+  </table>
+{% endif %}

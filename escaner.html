@@ -1,0 +1,142 @@
+<!-- 
+  escaner.html
+  Esta es la aplicación Frontend que usará el personal de seguridad.
+  Funciona en el navegador del móvil.
+-->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner de Eventos</title>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.tailwindcss.com"></script> <!-- Usamos Tailwind para estilos rápidos -->
+    <style>
+        /* Ajustes específicos para el video del scanner */
+        #reader video {
+            border-radius: 0.5rem;
+            object-fit: cover;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white h-screen flex flex-col items-center justify-start p-4">
+
+    <!-- Cabecera -->
+    <header class="w-full max-w-md text-center mb-6 mt-4">
+        <h1 class="text-2xl font-bold text-blue-400">Control de Acceso</h1>
+        <p class="text-gray-400 text-sm">Escanea el QR de la entrada</p>
+    </header>
+
+    <!-- Área de Cámara -->
+    <div class="w-full max-w-md bg-gray-800 p-2 rounded-xl shadow-lg mb-6">
+        <div id="reader" class="w-full"></div>
+    </div>
+
+    <!-- Área de Resultados -->
+    <div id="result-card" class="w-full max-w-md bg-gray-800 rounded-xl p-6 text-center shadow-lg hidden">
+        <div id="status-icon" class="text-6xl mb-4"></div>
+        <h2 id="status-title" class="text-2xl font-bold mb-2"></h2>
+        <p id="status-message" class="text-gray-300 whitespace-pre-line"></p>
+        
+        <button onclick="resetScanner()" class="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full w-full transition">
+            Escanear Siguiente
+        </button>
+    </div>
+
+    <!-- Configuración de URL (Solo visible para debug o configuración) -->
+    <div class="mt-auto text-xs text-gray-600 w-full max-w-md text-center pb-4">
+        <p>Conectado a Backend</p>
+    </div>
+
+    <script>
+        // --- CONFIGURACIÓN ---
+        // CAMBIA ESTO POR LA URL DE TU SERVIDOR EN RENDER/VERCEL
+        // Ejemplo: "https://mi-app-tickets.onrender.com"
+        const API_BASE_URL = "http://localhost:8080"; 
+
+        let html5QrcodeScanner;
+        const resultCard = document.getElementById('result-card');
+        const readerDiv = document.getElementById('reader');
+        const statusIcon = document.getElementById('status-icon');
+        const statusTitle = document.getElementById('status-title');
+        const statusMsg = document.getElementById('status-message');
+
+        function onScanSuccess(decodedText, decodedResult) {
+            // Detenemos el escaneo momentáneamente para procesar
+            html5QrcodeScanner.pause();
+
+            // Mostramos estado de "Cargando"
+            mostrarResultado("loading");
+
+            console.log(`Código escaneado: ${decodedText}`);
+
+            // Llamada al Backend
+            fetch(`${API_BASE_URL}/verificar_ticket/${decodedText}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.valido) {
+                        mostrarResultado("success", data.mensaje);
+                    } else {
+                        // Si es inválido o ya usado
+                        // Detectamos si es "ya usado" por el mensaje
+                        const tipo = data.mensaje.includes("YA FUE USADO") ? "warning" : "error";
+                        mostrarResultado(tipo, data.mensaje);
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    mostrarResultado("error", "Error de conexión con el servidor.");
+                });
+        }
+
+        function onScanFailure(error) {
+            // No hacemos nada para no saturar la consola, el scanner sigue buscando.
+        }
+
+        function mostrarResultado(tipo, mensaje = "") {
+            readerDiv.classList.add('hidden'); // Ocultar cámara
+            resultCard.classList.remove('hidden'); // Mostrar tarjeta
+
+            resultCard.className = "w-full max-w-md rounded-xl p-6 text-center shadow-lg border-4";
+            
+            if (tipo === "success") {
+                resultCard.classList.add("bg-green-900", "border-green-500");
+                statusIcon.innerHTML = "✅";
+                statusTitle.textContent = "ACCESO PERMITIDO";
+                statusTitle.className = "text-2xl font-bold text-green-400 mb-2";
+            } else if (tipo === "warning") {
+                resultCard.classList.add("bg-yellow-900", "border-yellow-500");
+                statusIcon.innerHTML = "⚠️";
+                statusTitle.textContent = "YA FUE USADO";
+                statusTitle.className = "text-2xl font-bold text-yellow-400 mb-2";
+            } else if (tipo === "error") {
+                resultCard.classList.add("bg-red-900", "border-red-500");
+                statusIcon.innerHTML = "❌";
+                statusTitle.textContent = "DENEGADO";
+                statusTitle.className = "text-2xl font-bold text-red-400 mb-2";
+            } else if (tipo === "loading") {
+                resultCard.className = "w-full max-w-md bg-gray-800 rounded-xl p-6 text-center shadow-lg";
+                statusIcon.innerHTML = "⏳";
+                statusTitle.textContent = "Verificando...";
+                statusTitle.className = "text-2xl font-bold text-white mb-2";
+            }
+
+            statusMsg.textContent = mensaje;
+        }
+
+        function resetScanner() {
+            resultCard.classList.add('hidden');
+            readerDiv.classList.remove('hidden');
+            html5QrcodeScanner.resume();
+        }
+
+        // Inicializar Scanner
+        html5QrcodeScanner = new Html5QrcodeScanner(
+            "reader",
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            /* verbose= */ false
+        );
+        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    </script>
+</body>
+</html>
