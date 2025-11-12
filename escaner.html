@@ -1,7 +1,6 @@
 <!-- 
   escaner.html
-  Esta es la aplicación Frontend que usará el personal de seguridad.
-  Funciona en el navegador del móvil.
+  Versión corregida para evitar errores al subir archivos de imagen.
 -->
 <!DOCTYPE html>
 <html lang="es">
@@ -10,9 +9,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scanner de Eventos</title>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
-    <script src="https://cdn.tailwindcss.com"></script> <!-- Usamos Tailwind para estilos rápidos -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* Ajustes específicos para el video del scanner */
         #reader video {
             border-radius: 0.5rem;
             object-fit: cover;
@@ -43,16 +41,13 @@
         </button>
     </div>
 
-    <!-- Configuración de URL (Solo visible para debug o configuración) -->
     <div class="mt-auto text-xs text-gray-600 w-full max-w-md text-center pb-4">
-        <p>Conectado a Backend</p>
+        <p>Conectado a Backend Seguro</p>
     </div>
 
     <script>
-        // --- CONFIGURACIÓN ---
-        // CAMBIA ESTO POR LA URL DE TU SERVIDOR EN RENDER/VERCEL
-        // Ejemplo: "https://mi-app-tickets.onrender.com"
-       const API_BASE_URL = "https://tickets-e810.onrender.com";
+        // --- TU URL DE RENDER ---
+        const API_BASE_URL = "https://tickets-e810.onrender.com"; 
 
         let html5QrcodeScanner;
         const resultCard = document.getElementById('result-card');
@@ -62,8 +57,14 @@
         const statusMsg = document.getElementById('status-message');
 
         function onScanSuccess(decodedText, decodedResult) {
-            // Detenemos el escaneo momentáneamente para procesar
-            html5QrcodeScanner.pause();
+            // CORRECCIÓN: Usamos try-catch al pausar.
+            // Si escaneas un archivo, el scanner ya se detuvo solo, así que 'pause()' da error.
+            // Con esto ignoramos ese error y seguimos procesando.
+            try {
+                html5QrcodeScanner.pause();
+            } catch (err) {
+                console.log("Scanner ya estaba detenido (probablemente es un archivo). Seguimos...");
+            }
 
             // Mostramos estado de "Cargando"
             mostrarResultado("loading");
@@ -77,26 +78,26 @@
                     if (data.valido) {
                         mostrarResultado("success", data.mensaje);
                     } else {
-                        // Si es inválido o ya usado
                         // Detectamos si es "ya usado" por el mensaje
-                        const tipo = data.mensaje.includes("YA FUE USADO") ? "warning" : "error";
-                        mostrarResultado(tipo, data.mensaje);
+                        const tipo = data.mensaje && data.mensaje.includes("YA FUE USADO") ? "warning" : "error";
+                        mostrarResultado(tipo, data.mensaje || "Ticket inválido");
                     }
                 })
                 .catch(err => {
                     console.error(err);
-                    mostrarResultado("error", "Error de conexión con el servidor.");
+                    mostrarResultado("error", "Error de conexión con el servidor.\nAsegúrate de que el backend esté despierto.");
                 });
         }
 
         function onScanFailure(error) {
-            // No hacemos nada para no saturar la consola, el scanner sigue buscando.
+            // No hacemos nada para no saturar la consola
         }
 
         function mostrarResultado(tipo, mensaje = "") {
             readerDiv.classList.add('hidden'); // Ocultar cámara
             resultCard.classList.remove('hidden'); // Mostrar tarjeta
 
+            // Resetear clases base
             resultCard.className = "w-full max-w-md rounded-xl p-6 text-center shadow-lg border-4";
             
             if (tipo === "success") {
@@ -115,7 +116,7 @@
                 statusTitle.textContent = "DENEGADO";
                 statusTitle.className = "text-2xl font-bold text-red-400 mb-2";
             } else if (tipo === "loading") {
-                resultCard.className = "w-full max-w-md bg-gray-800 rounded-xl p-6 text-center shadow-lg";
+                resultCard.className = "w-full max-w-md bg-gray-800 rounded-xl p-6 text-center shadow-lg border-2 border-blue-500";
                 statusIcon.innerHTML = "⏳";
                 statusTitle.textContent = "Verificando...";
                 statusTitle.className = "text-2xl font-bold text-white mb-2";
@@ -127,7 +128,14 @@
         function resetScanner() {
             resultCard.classList.add('hidden');
             readerDiv.classList.remove('hidden');
-            html5QrcodeScanner.resume();
+            // Intentamos reanudar, si falla (porque era archivo), reiniciamos todo o no hacemos nada crítico
+            try {
+                html5QrcodeScanner.resume();
+            } catch (e) {
+                console.log("No se pudo reanudar (era archivo), recargando escáner...");
+                // Si falla reanudar, es mejor recargar la página para limpiar estado en pruebas de archivo
+                window.location.reload();
+            }
         }
 
         // Inicializar Scanner
