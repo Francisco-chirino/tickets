@@ -1,50 +1,40 @@
-# mi_app_tickets.py
-# Este es el archivo principal de tu servidor (Backend).
-# Ejecutar con: python mi_app_tickets.py
-
 import sqlite3
 import qrcode
 import io
 import hmac
 import hashlib
 import base64
-import os
 from flask import Flask, jsonify, request, send_file, g, abort
 from flask_cors import CORS
 
 app = Flask(__name__)
-# CORS permite que tu archivo escaner.html (que puede estar en otro dominio)
-# se comunique con este servidor.
-CORS(app)
+# CORRECCIÓN: Permite conexiones desde CUALQUIER origen (*)
+CORS(app, resources={r"/*": {"origins": "*"}})
 
-# --- CONFIGURACIÓN ---
+# --- Configuración ---
 DATABASE = 'tickets.db'
+# ¡ASEGÚRATE DE QUE TU SECRETO DE SHOPIFY ESTÉ PEGADO AQUÍ!
+SHOPIFY_API_SECRET = "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" 
 
-# ¡IMPORTANTE! 
-# Debes reemplazar este texto con el 'Client Secret' real de tu App de Shopify.
-# Si estás probando en local sin Shopify real, puedes dejar esto, pero la validación del webhook fallará.
-SHOPIFY_API_SECRET = os.environ.get('SHOPIFY_SECRET', "TU_SECRET_COMPARTIDO_DE_SHOPIFY")
-
-# --- GESTIÓN DE BASE DE DATOS (SQLite) ---
+# --- Funciones de la Base de Datos (SQLite) ---
 
 def get_db():
-    """Abre una conexión a la base de datos SQLite."""
+    """Abre una conexión a la base de datos"""
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
-        # Esto permite acceder a las columnas por nombre (ej. row['email'])
         db.row_factory = sqlite3.Row 
     return db
 
 @app.teardown_appcontext
 def close_connection(exception):
-    """Cierra la conexión a la BD al terminar la petición."""
+    """Cierra la conexión al final de la petición"""
     db = getattr(g, '_database', None)
     if db is not None:
         db.close()
 
 def init_db():
-    """Inicializa la base de datos creando la tabla 'tickets' si no existe."""
+    """Crea la tabla de la base de datos si no existe"""
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
@@ -56,21 +46,18 @@ def init_db():
                 cliente_email TEXT,
                 orden_id TEXT,
                 usado BOOLEAN NOT NULL DEFAULT 0,
-                fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                mensaje_verificacion TEXT
             )
             """
         )
         db.commit()
-        print("--- Base de datos 'tickets.db' verificada/inicializada ---")
+        print("Base de datos inicializada y tabla 'tickets' asegurada.")
 
-# --- SEGURIDAD ---
-
+# --- Función de Seguridad del Webhook ---
 def verificar_webhook(data, hmac_header):
-    """
-    Verifica que la notificación realmente provenga de Shopify
-    comparando las firmas criptográficas (HMAC).
-    """
-    if not hmac_header or not SHOPIFY_API_SECRET:
+    """Verifica que la petición venga de Shopify"""
+    if not hmac_header:
+        print("Error: No se encontró la cabecera HMAC.")
         return False
         
     digest = hmac.new(
@@ -81,139 +68,128 @@ def verificar_webhook(data, hmac_header):
     
     computed_hmac = base64.b64encode(digest)
     
-    # Comparación segura para evitar ataques de tiempo
     return hmac.compare_digest(computed_hmac, hmac_header.encode('utf-8'))
 
-# --- RUTAS (ENDPOINTS) ---
 
-@app.route('/')
-def home():
-    return "El servidor de tickets está funcionando correctamente."
-
+# --- 1. ENDPOINT: El Webhook que escucha a Shopify ---
 @app.route("/shopify/webhook/orden_pagada", methods=['POST'])
 def webhook_orden_pagada():
-    """
-    Recibe la notificación de Shopify cuando se paga una orden.
-    Genera los tickets en la base de datos.
-    """
-    # 1. Verificación de seguridad
+    
     hmac_header = request.headers.get('X-Shopify-Hmac-Sha256')
     data = request.get_data()
     
-    # Nota: Si estás probando manualmente sin Shopify, puedes comentar este if temporalmente
-    if SHOPIFY_API_SECRET != "TU_SECRET_COMPARTIDO_DE_SHOPIFY":
-        if not verificar_webhook(data, hmac_header):
-            print("Error de seguridad: Firma HMAC inválida.")
-            abort(401)
+    if not verificar_webhook(data, hmac_header):
+        print("¡ALERTA DE SEGURIDAD! HMAC inválido.")
+        abort(401)
     
-    # 2. Procesar datos del pedido
+    pedido = request.json
+    cliente_email = pedido.get('email')
+    orden_id = pedido.get('id')
+    
+    print(f"Procesando pedido: {orden_id} para {cliente_email}")
+    
     try:
-        pedido = request.json
-        cliente_email = pedido.get('email')
-        orden_id = str(pedido.get('id'))
-        
-        print(f"Procesando Orden ID: {orden_id} - Email: {cliente_email}")
-        
         db = get_db()
         cursor = db.cursor()
-        tickets_creados = 0
         
-        # Recorremos los ítems comprados
         for item in pedido.get('line_items', []):
             sku = item.get('sku')
             cantidad = item.get('quantity')
             
-            # LÓGICA: Si tiene SKU, asumimos que es una entrada/ticket.
-            # Puedes filtrar aquí por SKUs específicos si vendes otras cosas.
-            if sku:
+            # (Usaremos la lógica de SKU por ahora, es más seguro)
+            if sku: 
+                print(f"Producto '{item.get('title')}' (SKU: {sku}) es un ticket. Cantidad: {cantidad}")
+                
                 for i in range(cantidad):
-                    # Generamos ID único: TICKET-{Orden}-{Item}-{Indice}
                     ticket_id = f"TICKET-{orden_id}-{item.get('id')}-{i+1}"
                     
-                    try:
-                        cursor.execute(
-                            """
-                            INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado)
-                            VALUES (?, ?, ?, ?, 0)
-                            """,
-                            (ticket_id, sku, cliente_email, orden_id)
-                        )
-                        tickets_creados += 1
-                        print(f"Ticket generado: {ticket_id}")
-                    except sqlite3.IntegrityError:
-                        # Si el ticket ya existe, lo ignoramos (idempotencia)
-                        print(f"El ticket {ticket_id} ya existía.")
+                    cursor.execute(
+                        """
+                        INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado)
+                        VALUES (?, ?, ?, ?, 0)
+                        ON CONFLICT(ticket_id) DO NOTHING
+                        """,
+                        (ticket_id, sku, cliente_email, str(orden_id))
+                    )
+                    print(f"Ticket {ticket_id} creado en la base de datos.")
         
-        db.commit()
-        print(f"Proceso completado. Total tickets nuevos: {tickets_creados}")
-        return jsonify({"status": "success"}), 200
-        
+        db.commit() 
+    
     except Exception as e:
-        print(f"Error procesando webhook: {e}")
+        print(f"Error al procesar el pedido: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+    return jsonify({"status": "success"}), 200
+
+
+# --- 2. ENDPOINT: El Escáner de Check-in ---
 @app.route("/verificar_ticket/<string:ticket_id>")
 def verificar_ticket(ticket_id):
-    """
-    Endpoint consultado por el ESCÁNER.
-    Verifica si el ticket existe y si ya fue usado.
-    """
-    print(f"Solicitud de verificación para: {ticket_id}")
     
+    print(f"Solicitud de verificación para: {ticket_id}") # Log para ver la petición
     db = get_db()
     cursor = db.cursor()
     
+    # Esta línea era la que fallaba
     cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,))
     ticket = cursor.fetchone()
 
-    # CASO 1: El ticket no existe en la BD
     if not ticket:
         return jsonify({
             "valido": False,
-            "mensaje": "❌ TICKET NO ENCONTRADO O INVÁLIDO"
+            "mensaje": "ACCESO DENEGADO: Ticket inválido o no existe."
         })
 
-    # CASO 2: El ticket ya fue usado anteriormente
     if ticket["usado"]:
         return jsonify({
             "valido": False,
-            "mensaje": f"⚠️ ALERTA: ESTE TICKET YA FUE USADO.\nSKU: {ticket['evento_sku']}"
+            "mensaje": f"ALERTA: Este ticket (SKU: {ticket['evento_sku']}) YA FUE USADO."
         })
 
-    # CASO 3: Ticket válido (Check-in exitoso)
-    # Lo marcamos como usado ahora mismo.
     cursor.execute("UPDATE tickets SET usado = 1 WHERE ticket_id = ?", (ticket_id,))
     db.commit()
     
+    print(f"Ticket {ticket_id} marcado como usado.")
+    
     return jsonify({
         "valido": True,
-        "mensaje": f"✅ ACCESO PERMITIDO\nEvento: {ticket['evento_sku']}\nTitular: {ticket['cliente_email']}"
+        "mensaje": f"ACCESO PERMITIDO: Ticket válido (SKU: {ticket['evento_sku']})."
     })
 
+# --- 3. ENDPOINT: El Cliente genera/ve su QR ---
 @app.route("/generar_qr/<string:ticket_id>")
 def generar_qr(ticket_id):
-    """
-    Genera la imagen del código QR dinámicamente.
-    Esta URL es la que se inserta en el correo de Shopify.
-    """
-    # Opcional: Verificar que el ticket exista antes de generar QR
-    # db = get_db() ...
     
-    # Crear imagen QR
-    qr = qrcode.QRCode(box_size=10, border=4)
-    qr.add_data(ticket_id)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
+    db = get_db()
+    cursor = db.cursor()
+    # Esta línea también fallaba, por eso los QR no cargaban
+    cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,))
+    ticket = cursor.fetchone()
     
-    # Guardar en memoria (buffer) para no crear archivos temporales
-    buffer = io.BytesIO()
-    img.save(buffer, 'PNG')
-    buffer.seek(0)
+    if not ticket:
+        return jsonify({"error": "Ticket no encontrado en la BD"}), 404
     
-    return send_file(buffer, mimetype='image/png')
+    img_qr = qrcode.make(ticket_id)
+    
+    memoria_img = io.BytesIO()
+    img_qr.save(memoria_img, 'PNG')
+    memoria_img.seek(0)
+    
+    return send_file(memoria_img, mimetype='image/png')
+
+# --- 4. ENDPOINT: Raíz (para "despertar" el servidor) ---
+@app.route("/")
+def hello_world():
+    return "El servidor de tickets está funcionando correctamente. La base de datos ha sido inicializada."
+
+
+# --- Ejecución de la App ---
+
+# ¡¡¡AQUÍ ESTÁ LA CORRECCIÓN!!!
+# Llamamos a init_db() aquí, fuera del bloque __name__
+# Esto asegura que gunicorn (Render) SIEMPRE cree la tabla al iniciar.
+init_db()
 
 if __name__ == '__main__':
-    # Inicializamos la BD al arrancar
-    init_db()
-    # '0.0.0.0' hace que el servidor sea visible externamente (necesario para Render/Docker)
-    app.run(debug=True, host='0.0.0.0', port=8080)
+    # El init_db() ya se llamó arriba
+    app.run(debug=False, host='0.0.0.0', port=8080)
