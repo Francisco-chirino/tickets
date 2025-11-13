@@ -1,33 +1,107 @@
 <!-- 
   escaner.html
-  Versión corregida para evitar errores al subir archivos de imagen.
+  Versión 3.0 - Profesional
+  - Añade efectos de sonido (Beep/Buzz)
+  - Añade vibración (Haptic Feedback)
+  - Añade animación de "láser" de escaneo
+  - Añade auto-reseteo (3 seg) para check-in rápido
 -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scanner de Eventos</title>
+    <title>Scanner de Eventos v3</title>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Ajuste para que el video llene el contenedor */
+        #reader {
+            position: relative;
+            overflow: hidden;
+            border-radius: 0.5rem; /* Redondeo del video */
+        }
         #reader video {
-            border-radius: 0.5rem;
+            width: 100%;
+            height: 100%;
             object-fit: cover;
+        }
+
+        /* Animación para el spinner de carga */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-fast {
+            animation: spin 0.8s linear infinite;
+        }
+
+        /* Animación de Pop-in para la tarjeta */
+        @keyframes pop-in {
+            0% { opacity: 0; transform: scale(0.9); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .animate-pop-in {
+            animation: pop-in 0.3s ease-out forwards;
+        }
+        
+        /* Animación de pulso para los iconos */
+        @keyframes pulse-icon {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+        .animate-pulse-icon {
+            animation: pulse-icon 1s ease-in-out;
+        }
+
+        /* NUEVO: Animación del láser */
+        @keyframes scan-laser {
+            0% {
+                top: 0;
+                opacity: 0.8;
+            }
+            100% {
+                top: 100%;
+                opacity: 0;
+            }
+        }
+        .scan-laser-line {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background-color: #ef4444; /* Rojo */
+            box-shadow: 0 0 10px #ef4444, 0 0 5px #ef4444;
+            animation: scan-laser 2.5s ease-in-out infinite;
         }
     </style>
 </head>
-<body class="bg-gray-900 text-white h-screen flex flex-col items-center justify-start p-4">
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-start p-4 overflow-hidden">
 
     <!-- Cabecera -->
     <header class="w-full max-w-md text-center mb-6 mt-4">
-        <h1 class="text-2xl font-bold text-blue-400">Control de Acceso</h1>
-        <p class="text-gray-400 text-sm">Escanea el QR de la entrada</p>
+        <h1 class="text-3xl font-bold text-blue-400">Control de Acceso</h1>
+        <p class="text-gray-400 text-sm">Apunta la cámara al código QR</p>
     </header>
 
-    <!-- Área de Cámara -->
-    <div class="w-full max-w-md bg-gray-800 p-2 rounded-xl shadow-lg mb-6">
+    <!-- Área de Cámara con Guía -->
+    <div id="reader-container" class="w-full max-w-md bg-gray-800 p-2 rounded-xl shadow-lg mb-6 relative">
         <div id="reader" class="w-full"></div>
+        
+        <!-- Guía de escaneo (Retícula) -->
+        <div class="absolute inset-0 flex items-center justify-center p-2 pointer-events-none">
+            <!-- Usamos el tamaño del qrbox (250x250) -->
+            <div class="w-[250px] h-[250px] relative overflow-hidden">
+                <!-- Esquinas -->
+                <div class="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-400 rounded-tl-lg"></div>
+                <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-400 rounded-tr-lg"></div>
+                <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-400 rounded-bl-lg"></div>
+                <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-400 rounded-br-lg"></div>
+                
+                <!-- NUEVO: Láser -->
+                <div class="scan-laser-line"></div>
+            </div>
+        </div>
     </div>
 
     <!-- Área de Resultados -->
@@ -36,13 +110,13 @@
         <h2 id="status-title" class="text-2xl font-bold mb-2"></h2>
         <p id="status-message" class="text-gray-300 whitespace-pre-line"></p>
         
-        <button onclick="resetScanner()" class="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full w-full transition">
+        <button onclick="resetScanner()" class="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full w-full transition transform hover:scale-105">
             Escanear Siguiente
         </button>
     </div>
 
     <div class="mt-auto text-xs text-gray-600 w-full max-w-md text-center pb-4">
-        <p>Conectado a Backend Seguro</p>
+        <p>Conectado a: tickets-e810.onrender.com</p>
     </div>
 
     <script>
@@ -50,101 +124,161 @@
         const API_BASE_URL = "https://tickets-e810.onrender.com"; 
 
         let html5QrcodeScanner;
+        let autoResetTimer; // NUEVO: Timer para auto-reset
         const resultCard = document.getElementById('result-card');
-        const readerDiv = document.getElementById('reader');
+        const readerContainer = document.getElementById('reader-container');
         const statusIcon = document.getElementById('status-icon');
         const statusTitle = document.getElementById('status-title');
         const statusMsg = document.getElementById('status-message');
 
+        // --- NUEVO: Motor de Sonido y Vibración ---
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        function playSound(type) {
+            try {
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                
+                gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.01); // Fade in
+
+                if (type === 'success') {
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // Tono agudo
+                    if ('vibrate' in navigator) navigator.vibrate(100); // Vibración corta
+                } else { // error o warning
+                    oscillator.type = 'square';
+                    oscillator.frequency.setValueAtTime(300, audioCtx.currentTime); // Tono grave
+                    if ('vibrate' in navigator) navigator.vibrate([100, 50, 100]); // Doble vibración
+                }
+
+                oscillator.start();
+                gainNode.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.2); // Fade out
+                oscillator.stop(audioCtx.currentTime + 0.2);
+            } catch (e) {
+                console.log("No se pudo reproducir sonido.", e);
+            }
+        }
+        // --- Fin Motor de Sonido ---
+
         function onScanSuccess(decodedText, decodedResult) {
-            // CORRECCIÓN: Usamos try-catch al pausar.
-            // Si escaneas un archivo, el scanner ya se detuvo solo, así que 'pause()' da error.
-            // Con esto ignoramos ese error y seguimos procesando.
             try {
                 html5QrcodeScanner.pause();
             } catch (err) {
-                console.log("Scanner ya estaba detenido (probablemente es un archivo). Seguimos...");
+                console.log("Scanner ya estaba detenido (archivo).");
             }
 
-            // Mostramos estado de "Cargando"
             mostrarResultado("loading");
-
             console.log(`Código escaneado: ${decodedText}`);
 
-            // Llamada al Backend
             fetch(`${API_BASE_URL}/verificar_ticket/${decodedText}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.valido) {
                         mostrarResultado("success", data.mensaje);
+                        playSound('success');
                     } else {
-                        // Detectamos si es "ya usado" por el mensaje
                         const tipo = data.mensaje && data.mensaje.includes("YA FUE USADO") ? "warning" : "error";
                         mostrarResultado(tipo, data.mensaje || "Ticket inválido");
+                        playSound('error');
                     }
                 })
                 .catch(err => {
                     console.error(err);
-                    mostrarResultado("error", "Error de conexión con el servidor.\nAsegúrate de que el backend esté despierto.");
+                    mostrarResultado("error", "Error de conexión con el servidor.\n(Asegúrate de que el backend esté 'despierto')");
+                    playSound('error');
                 });
         }
 
         function onScanFailure(error) {
-            // No hacemos nada para no saturar la consola
+            // No hacemos nada
         }
 
         function mostrarResultado(tipo, mensaje = "") {
-            readerDiv.classList.add('hidden'); // Ocultar cámara
-            resultCard.classList.remove('hidden'); // Mostrar tarjeta
+            // Limpiar timer anterior si existiera
+            clearTimeout(autoResetTimer);
 
-            // Resetear clases base
-            resultCard.className = "w-full max-w-md rounded-xl p-6 text-center shadow-lg border-4";
+            readerContainer.classList.add('hidden'); // Ocultar cámara
+            resultCard.classList.remove('hidden'); // Mostrar tarjeta
+            resultCard.classList.add('animate-pop-in'); 
+
+            resultCard.className = "w-full max-w-md rounded-xl p-6 text-center shadow-lg border-4 animate-pop-in";
+            statusIcon.className = "text-6xl mb-4 animate-pulse-icon";
             
             if (tipo === "success") {
                 resultCard.classList.add("bg-green-900", "border-green-500");
                 statusIcon.innerHTML = "✅";
                 statusTitle.textContent = "ACCESO PERMITIDO";
-                statusTitle.className = "text-2xl font-bold text-green-400 mb-2";
+                statusTitle.className = "text-2xl font-bold text-green-300 mb-2";
             } else if (tipo === "warning") {
                 resultCard.classList.add("bg-yellow-900", "border-yellow-500");
                 statusIcon.innerHTML = "⚠️";
                 statusTitle.textContent = "YA FUE USADO";
-                statusTitle.className = "text-2xl font-bold text-yellow-400 mb-2";
+                statusTitle.className = "text-2xl font-bold text-yellow-300 mb-2";
             } else if (tipo === "error") {
                 resultCard.classList.add("bg-red-900", "border-red-500");
                 statusIcon.innerHTML = "❌";
                 statusTitle.textContent = "DENEGADO";
-                statusTitle.className = "text-2xl font-bold text-red-400 mb-2";
+                statusTitle.className = "text-2xl font-bold text-red-300 mb-2";
             } else if (tipo === "loading") {
-                resultCard.className = "w-full max-w-md bg-gray-800 rounded-xl p-6 text-center shadow-lg border-2 border-blue-500";
-                statusIcon.innerHTML = "⏳";
+                resultCard.className = "w-full max-w-md bg-gray-800 rounded-xl p-6 text-center shadow-lg border-2 border-blue-500 animate-pop-in";
+                statusIcon.innerHTML = `<div class="w-12 h-12 border-4 border-t-blue-400 border-gray-600 rounded-full animate-spin-fast mx-auto"></div>`;
                 statusTitle.textContent = "Verificando...";
                 statusTitle.className = "text-2xl font-bold text-white mb-2";
             }
 
             statusMsg.textContent = mensaje;
+
+            // NUEVO: Auto-reseteo después de 3 segundos (excepto en "cargando")
+            if (tipo !== "loading") {
+                autoResetTimer = setTimeout(resetScanner, 3000); // 3000ms = 3 segundos
+            }
         }
 
         function resetScanner() {
+            // Limpiar el timer por si el usuario presionó el botón manualmente
+            clearTimeout(autoResetTimer);
+
             resultCard.classList.add('hidden');
-            readerDiv.classList.remove('hidden');
-            // Intentamos reanudar, si falla (porque era archivo), reiniciamos todo o no hacemos nada crítico
+            resultCard.classList.remove('animate-pop-in'); 
+            readerContainer.classList.remove('hidden'); 
+            
             try {
                 html5QrcodeScanner.resume();
             } catch (e) {
-                console.log("No se pudo reanudar (era archivo), recargando escáner...");
-                // Si falla reanudar, es mejor recargar la página para limpiar estado en pruebas de archivo
+                console.log("No se pudo reanudar, recargando escáner...");
                 window.location.reload();
             }
         }
 
         // Inicializar Scanner
-        html5QrcodeScanner = new Html5QrcodeScanner(
-            "reader",
-            { fps: 10, qrbox: { width: 250, height: 250 } },
-            /* verbose= */ false
-        );
-        html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+        // Pedir permiso de cámara la primera vez
+        document.addEventListener('DOMContentLoaded', (event) => {
+            // Un truco para "despertar" el AudioContext en iOS/Safari
+            const startAudio = () => {
+                audioCtx.resume().then(() => {
+                    console.log('AudioContext despertado.');
+                    document.body.removeEventListener('touchstart', startAudio);
+                    document.body.removeEventListener('click', startAudio);
+                });
+            };
+            document.body.addEventListener('touchstart', startAudio, { once: true });
+            document.body.addEventListener('click', startAudio, { once: true });
+
+
+            html5QrcodeScanner = new Html5QrcodeScanner(
+                "reader",
+                { 
+                    fps: 10, 
+                    qrbox: { width: 250, height: 250 } 
+                },
+                /* verbose= */ false
+            );
+            html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+        });
+
     </script>
 </body>
 </html>
