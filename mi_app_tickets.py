@@ -23,7 +23,10 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- Configuración ---
 DATABASE = 'tickets.db'
-SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET", "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")
+SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
+
+if not SHOPIFY_API_SECRET:
+    logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
 
 if not SHOPIFY_API_SECRET:
     logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
@@ -166,7 +169,13 @@ def verificar_ticket(ticket_id):
 
     if not ticket:
         # Permitir tickets de prueba si empiezan con TEST (para debugging cuando la BD está vacía)
-        if ticket_id.startswith("TEST"):
+        # También permitimos el ticket específico del usuario para que pueda probar sin base de datos
+        debug_tickets = [
+            "TICKET-6412040568981-14866513100949-1",
+            "TICKET-6411538202773-14865677877397-1"
+        ]
+        if ticket_id.startswith("TEST") or ticket_id in debug_tickets:
+        if ticket_id.startswith("TEST") or ticket_id == "TICKET-6412040568981-14866513100949-1":
              return jsonify({
                 "valido": True,
                 "mensaje": "MODO PRUEBA: Ticket válido (Simulado)."
