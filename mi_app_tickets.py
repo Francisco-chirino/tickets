@@ -126,6 +126,9 @@ def webhook_orden_pagada():
 @app.route("/verificar_ticket/<string:ticket_id>")
 def verificar_ticket(ticket_id):
 
+    # Clean up whitespace from the ticket ID
+    ticket_id = ticket_id.strip()
+
     print(f"Solicitud de verificación para: {ticket_id}") # Log para ver la petición
     db = get_db()
     cursor = db.cursor()
