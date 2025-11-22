@@ -28,9 +28,6 @@ SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
 if not SHOPIFY_API_SECRET:
     logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
 
-if not SHOPIFY_API_SECRET:
-    logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
-
 # --- Funciones de la Base de Datos (SQLite) ---
 
 def get_db():
@@ -175,8 +172,7 @@ def verificar_ticket(ticket_id):
             "TICKET-6411538202773-14865677877397-1"
         ]
         if ticket_id.startswith("TEST") or ticket_id in debug_tickets:
-        if ticket_id.startswith("TEST") or ticket_id == "TICKET-6412040568981-14866513100949-1":
-             return jsonify({
+            return jsonify({
                 "valido": True,
                 "mensaje": "MODO PRUEBA: Ticket válido (Simulado)."
             })
