@@ -28,6 +28,9 @@ SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
 if not SHOPIFY_API_SECRET:
     logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
 
+if not SHOPIFY_API_SECRET:
+    logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
+
 # --- Funciones de la Base de Datos (SQLite) ---
 
 def get_db():
