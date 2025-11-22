@@ -1,8 +1,8 @@
-<!-- 
+<!--
   COPIA Y PEGA ESTO EN SHOPIFY
   Ruta: Configuración > Notificaciones > Confirmación de pedido
   Pégalo donde quieras que aparezcan los códigos QR (ej. después de la lista de items).
-  
+
   NOTA: Recuerda reemplazar 'https://TU-APP.onrender.com' con tu URL real.
 -->
 
@@ -27,12 +27,13 @@
               <!-- Bucle para generar un QR por cada unidad comprada -->
               {% for i in (1..item.quantity) %}
                 {% assign ticket_idx = i %}
-                
+
                 <!-- Construcción del ID: TICKET-{Orden}-{Item}-{Indice} -->
                 {% assign ticket_id = "TICKET-" | append: order.id | append: "-" | append: item.id | append: "-" | append: ticket_idx %}
-                
+
                 <!-- Construcción de la URL del QR -->
-                {% assign qr_url = "https://TU-APP.onrender.com/generar_qr/" | append: ticket_id %}
+                <!-- Replace TU-APP.onrender.com with your actual domain -->
+                {% assign qr_url = "https://tickets-e810.onrender.com/generar_qr/" | append: ticket_id %}
 
                 <div style="display: inline-block; margin: 10px; text-align: center;">
                   <p style="font-weight: bold; margin-bottom: 5px; font-size: 12px;">Entrada #{{ i }}</p>
