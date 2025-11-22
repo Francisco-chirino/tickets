@@ -4,6 +4,7 @@ import io
 import hmac
 import hashlib
 import base64
+import os
 from flask import Flask, jsonify, request, send_file, g, abort
 from flask_cors import CORS
 
@@ -14,7 +15,8 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # --- Configuración ---
 DATABASE = 'tickets.db'
 # ¡ASEGÚRATE DE QUE TU SECRETO DE SHOPIFY ESTÉ PEGADO AQUÍ!
-SHOPIFY_API_SECRET = "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"
+# Support environment variable for security
+SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET", "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")
 
 # --- Funciones de la Base de Datos (SQLite) ---
 
