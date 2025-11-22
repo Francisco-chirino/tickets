@@ -40,12 +40,8 @@ class TestTicketSystem(unittest.TestCase):
         This verifies the atomic update fix.
         """
         # 1. Create a valid ticket in the DB
-        # We can use the app context to insert directly
         with app.app_context():
             import sqlite3
-            # Connect directly to avoid Flask g object issues in setup if not in request context
-            # But init_db uses get_db which uses g.
-            # Let's just use sqlite3 directly for setup
             conn = sqlite3.connect('tickets.db')
             cursor = conn.cursor()
             cursor.execute(
@@ -56,8 +52,6 @@ class TestTicketSystem(unittest.TestCase):
             conn.close()
 
         # 2. Launch server in a separate process
-        # We need to run the actual server to test concurrency with requests
-        # Start server
         server_process = subprocess.Popen(
             [sys.executable, 'mi_app_tickets.py'],
             stdout=subprocess.DEVNULL,
@@ -93,6 +87,32 @@ class TestTicketSystem(unittest.TestCase):
         finally:
             server_process.terminate()
             server_process.wait()
+
+    def test_whitespace_sanitization(self):
+        """
+        Test that trailing whitespace in the verification request is ignored/sanitized.
+        """
+        # 1. Create a ticket "TEST-SPACE"
+        with app.app_context():
+            import sqlite3
+            conn = sqlite3.connect('tickets.db')
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado) VALUES (?, ?, ?, ?, 0)",
+                ('TEST-SPACE', 'SKU-SPACE', 'space@example.com', 'ORDER-SPACE')
+            )
+            conn.commit()
+            conn.close()
+
+        # 2. Request verification with trailing space: "TEST-SPACE "
+        # We manually construct the URL with encoded space to ensure it reaches the server as intended
+        ticket_id_with_space = "TEST-SPACE "
+        response = self.app.get(f'/verificar_ticket/{ticket_id_with_space}')
+        data = response.get_json()
+
+        # It should succeed now because we added .strip() in mi_app_tickets.py
+        self.assertTrue(data['valido'], "Verification failed despite whitespace fix")
+        self.assertIn("ACCESO PERMITIDO", data['mensaje'])
 
 if __name__ == '__main__':
     unittest.main()

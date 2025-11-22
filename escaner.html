@@ -1,4 +1,4 @@
-<!-- 
+<!--
   escaner.html
   Versión 3.0 - Profesional
   - Añade efectos de sonido (Beep/Buzz)
@@ -44,7 +44,7 @@
         .animate-pop-in {
             animation: pop-in 0.3s ease-out forwards;
         }
-        
+
         /* Animación de pulso para los iconos */
         @keyframes pulse-icon {
             0%, 100% { transform: scale(1); }
@@ -87,7 +87,7 @@
     <!-- Área de Cámara con Guía -->
     <div id="reader-container" class="w-full max-w-md bg-gray-800 p-2 rounded-xl shadow-lg mb-6 relative">
         <div id="reader" class="w-full"></div>
-        
+
         <!-- Guía de escaneo (Retícula) -->
         <div class="absolute inset-0 flex items-center justify-center p-2 pointer-events-none">
             <!-- Usamos el tamaño del qrbox (250x250) -->
@@ -97,7 +97,7 @@
                 <div class="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-400 rounded-tr-lg"></div>
                 <div class="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-400 rounded-bl-lg"></div>
                 <div class="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-400 rounded-br-lg"></div>
-                
+
                 <!-- NUEVO: Láser -->
                 <div class="scan-laser-line"></div>
             </div>
@@ -109,7 +109,7 @@
         <div id="status-icon" class="text-6xl mb-4"></div>
         <h2 id="status-title" class="text-2xl font-bold mb-2"></h2>
         <p id="status-message" class="text-gray-300 whitespace-pre-line"></p>
-        
+
         <button onclick="resetScanner()" class="mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-full w-full transition transform hover:scale-105">
             Escanear Siguiente
         </button>
@@ -121,7 +121,7 @@
 
     <script>
         // --- TU URL DE RENDER ---
-        const API_BASE_URL = "https://tickets-e810.onrender.com"; 
+        const API_BASE_URL = "https://tickets-e810.onrender.com";
 
         let html5QrcodeScanner;
         let autoResetTimer; // NUEVO: Timer para auto-reset
@@ -140,7 +140,7 @@
                 const gainNode = audioCtx.createGain();
                 oscillator.connect(gainNode);
                 gainNode.connect(audioCtx.destination);
-                
+
                 gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
                 gainNode.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.01); // Fade in
 
@@ -173,7 +173,9 @@
             mostrarResultado("loading");
             console.log(`Código escaneado: ${decodedText}`);
 
-            fetch(`${API_BASE_URL}/verificar_ticket/${decodedText}`)
+            // Sanitize input: trim whitespace and encode URI component
+            const cleanText = decodedText.trim();
+            fetch(`${API_BASE_URL}/verificar_ticket/${encodeURIComponent(cleanText)}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.valido) {
@@ -202,11 +204,11 @@
 
             readerContainer.classList.add('hidden'); // Ocultar cámara
             resultCard.classList.remove('hidden'); // Mostrar tarjeta
-            resultCard.classList.add('animate-pop-in'); 
+            resultCard.classList.add('animate-pop-in');
 
             resultCard.className = "w-full max-w-md rounded-xl p-6 text-center shadow-lg border-4 animate-pop-in";
             statusIcon.className = "text-6xl mb-4 animate-pulse-icon";
-            
+
             if (tipo === "success") {
                 resultCard.classList.add("bg-green-900", "border-green-500");
                 statusIcon.innerHTML = "✅";
@@ -242,9 +244,9 @@
             clearTimeout(autoResetTimer);
 
             resultCard.classList.add('hidden');
-            resultCard.classList.remove('animate-pop-in'); 
-            readerContainer.classList.remove('hidden'); 
-            
+            resultCard.classList.remove('animate-pop-in');
+            readerContainer.classList.remove('hidden');
+
             try {
                 html5QrcodeScanner.resume();
             } catch (e) {
@@ -270,9 +272,9 @@
 
             html5QrcodeScanner = new Html5QrcodeScanner(
                 "reader",
-                { 
-                    fps: 10, 
-                    qrbox: { width: 250, height: 250 } 
+                {
+                    fps: 10,
+                    qrbox: { width: 250, height: 250 }
                 },
                 /* verbose= */ false
             );
