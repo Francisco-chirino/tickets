@@ -125,11 +125,18 @@ def webhook_orden_pagada():
 
 
 # --- 2. ENDPOINT: El Escáner de Check-in ---
-@app.route("/verificar_ticket/<string:ticket_id>")
+@app.route("/verificar_ticket/<path:ticket_id>")
 def verificar_ticket(ticket_id):
 
     # Clean up whitespace from the ticket ID
     ticket_id = ticket_id.strip()
+
+    # Support scanning full URLs: extract the last part if it looks like a URL
+    if ticket_id.startswith("http://") or ticket_id.startswith("https://"):
+        # Remove trailing slash if present
+        if ticket_id.endswith("/"):
+            ticket_id = ticket_id[:-1]
+        ticket_id = ticket_id.split("/")[-1]
 
     print(f"Solicitud de verificación para: {ticket_id}") # Log para ver la petición
     db = get_db()
