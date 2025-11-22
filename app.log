@@ -1,0 +1,9 @@
+2025-11-22 11:58:09,513 - WARNING - SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.
+2025-11-22 11:58:09,519 - INFO - Base de datos inicializada y tabla 'tickets' asegurada.
+ * Serving Flask app 'mi_app_tickets'
+ * Debug mode: off
+2025-11-22 11:58:09,524 - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://192.168.0.2:8080
+2025-11-22 11:58:09,524 - INFO - [33mPress CTRL+C to quit[0m
