@@ -14,7 +14,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # --- Configuración ---
 DATABASE = 'tickets.db'
 # ¡ASEGÚRATE DE QUE TU SECRETO DE SHOPIFY ESTÉ PEGADO AQUÍ!
-SHOPIFY_API_SECRET = "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" 
+SHOPIFY_API_SECRET = "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"
 
 # --- Funciones de la Base de Datos (SQLite) ---
 
@@ -23,7 +23,7 @@ def get_db():
     db = getattr(g, '_database', None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row 
+        db.row_factory = sqlite3.Row
     return db
 
 @app.teardown_appcontext
@@ -59,50 +59,50 @@ def verificar_webhook(data, hmac_header):
     if not hmac_header:
         print("Error: No se encontró la cabecera HMAC.")
         return False
-        
+
     digest = hmac.new(
         SHOPIFY_API_SECRET.encode('utf-8'),
         data,
         hashlib.sha256
     ).digest()
-    
+
     computed_hmac = base64.b64encode(digest)
-    
+
     return hmac.compare_digest(computed_hmac, hmac_header.encode('utf-8'))
 
 
 # --- 1. ENDPOINT: El Webhook que escucha a Shopify ---
 @app.route("/shopify/webhook/orden_pagada", methods=['POST'])
 def webhook_orden_pagada():
-    
+
     hmac_header = request.headers.get('X-Shopify-Hmac-Sha256')
     data = request.get_data()
-    
+
     if not verificar_webhook(data, hmac_header):
         print("¡ALERTA DE SEGURIDAD! HMAC inválido.")
         abort(401)
-    
+
     pedido = request.json
     cliente_email = pedido.get('email')
     orden_id = pedido.get('id')
-    
+
     print(f"Procesando pedido: {orden_id} para {cliente_email}")
-    
+
     try:
         db = get_db()
         cursor = db.cursor()
-        
+
         for item in pedido.get('line_items', []):
             sku = item.get('sku')
             cantidad = item.get('quantity')
-            
+
             # (Usaremos la lógica de SKU por ahora, es más seguro)
-            if sku: 
+            if sku:
                 print(f"Producto '{item.get('title')}' (SKU: {sku}) es un ticket. Cantidad: {cantidad}")
-                
+
                 for i in range(cantidad):
                     ticket_id = f"TICKET-{orden_id}-{item.get('id')}-{i+1}"
-                    
+
                     cursor.execute(
                         """
                         INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado)
@@ -112,9 +112,9 @@ def webhook_orden_pagada():
                         (ticket_id, sku, cliente_email, str(orden_id))
                     )
                     print(f"Ticket {ticket_id} creado en la base de datos.")
-        
-        db.commit() 
-    
+
+        db.commit()
+
     except Exception as e:
         print(f"Error al procesar el pedido: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -125,11 +125,11 @@ def webhook_orden_pagada():
 # --- 2. ENDPOINT: El Escáner de Check-in ---
 @app.route("/verificar_ticket/<string:ticket_id>")
 def verificar_ticket(ticket_id):
-    
+
     print(f"Solicitud de verificación para: {ticket_id}") # Log para ver la petición
     db = get_db()
     cursor = db.cursor()
-    
+
     # Esta línea era la que fallaba
     cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,))
     ticket = cursor.fetchone()
@@ -146,11 +146,18 @@ def verificar_ticket(ticket_id):
             "mensaje": f"ALERTA: Este ticket (SKU: {ticket['evento_sku']}) YA FUE USADO."
         })
 
-    cursor.execute("UPDATE tickets SET usado = 1 WHERE ticket_id = ?", (ticket_id,))
+    # Fix: Atomic update to prevent race condition
+    cursor.execute("UPDATE tickets SET usado = 1 WHERE ticket_id = ? AND usado = 0", (ticket_id,))
     db.commit()
-    
+
+    if cursor.rowcount == 0:
+        return jsonify({
+            "valido": False,
+            "mensaje": f"ALERTA: Este ticket (SKU: {ticket['evento_sku']}) YA FUE USADO."
+        })
+
     print(f"Ticket {ticket_id} marcado como usado.")
-    
+
     return jsonify({
         "valido": True,
         "mensaje": f"ACCESO PERMITIDO: Ticket válido (SKU: {ticket['evento_sku']})."
@@ -159,22 +166,16 @@ def verificar_ticket(ticket_id):
 # --- 3. ENDPOINT: El Cliente genera/ve su QR ---
 @app.route("/generar_qr/<string:ticket_id>")
 def generar_qr(ticket_id):
-    
-    db = get_db()
-    cursor = db.cursor()
-    # Esta línea también fallaba, por eso los QR no cargaban
-    cursor.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,))
-    ticket = cursor.fetchone()
-    
-    if not ticket:
-        return jsonify({"error": "Ticket no encontrado en la BD"}), 404
-    
+    # No verificamos la BD aquí para evitar problemas de sincronización (race conditions)
+    # con el webhook. Si el ID está en el correo, mostramos el QR.
+    # La validación real ocurre en el escáner.
+
     img_qr = qrcode.make(ticket_id)
-    
+
     memoria_img = io.BytesIO()
     img_qr.save(memoria_img, 'PNG')
     memoria_img.seek(0)
-    
+
     return send_file(memoria_img, mimetype='image/png')
 
 # --- 4. ENDPOINT: Raíz (para "despertar" el servidor) ---
