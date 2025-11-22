@@ -5,8 +5,17 @@ import hmac
 import hashlib
 import base64
 import os
+import logging
 from flask import Flask, jsonify, request, send_file, g, abort
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Cargar variables de entorno
+load_dotenv()
+
+# Configuración de Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 # CORRECCIÓN: Permite conexiones desde CUALQUIER origen (*)
@@ -14,9 +23,10 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- Configuración ---
 DATABASE = 'tickets.db'
-# ¡ASEGÚRATE DE QUE TU SECRETO DE SHOPIFY ESTÉ PEGADO AQUÍ!
-# Support environment variable for security
-SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET", "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")
+SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
+
+if not SHOPIFY_API_SECRET:
+    logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
 
 # --- Funciones de la Base de Datos (SQLite) ---
 
@@ -53,13 +63,17 @@ def init_db():
             """
         )
         db.commit()
-        print("Base de datos inicializada y tabla 'tickets' asegurada.")
+        logger.info("Base de datos inicializada y tabla 'tickets' asegurada.")
 
 # --- Función de Seguridad del Webhook ---
 def verificar_webhook(data, hmac_header):
     """Verifica que la petición venga de Shopify"""
     if not hmac_header:
-        print("Error: No se encontró la cabecera HMAC.")
+        logger.error("Error: No se encontró la cabecera HMAC.")
+        return False
+
+    if not SHOPIFY_API_SECRET:
+        logger.error("Error: SHOPIFY_API_SECRET no configurado.")
         return False
 
     digest = hmac.new(
@@ -81,14 +95,14 @@ def webhook_orden_pagada():
     data = request.get_data()
 
     if not verificar_webhook(data, hmac_header):
-        print("¡ALERTA DE SEGURIDAD! HMAC inválido.")
+        logger.warning("¡ALERTA DE SEGURIDAD! HMAC inválido.")
         abort(401)
 
     pedido = request.json
     cliente_email = pedido.get('email')
     orden_id = pedido.get('id')
 
-    print(f"Procesando pedido: {orden_id} para {cliente_email}")
+    logger.info(f"Procesando pedido: {orden_id} para {cliente_email}")
 
     try:
         db = get_db()
@@ -100,7 +114,7 @@ def webhook_orden_pagada():
 
             # (Usaremos la lógica de SKU por ahora, es más seguro)
             if sku:
-                print(f"Producto '{item.get('title')}' (SKU: {sku}) es un ticket. Cantidad: {cantidad}")
+                logger.info(f"Producto '{item.get('title')}' (SKU: {sku}) es un ticket. Cantidad: {cantidad}")
 
                 for i in range(cantidad):
                     ticket_id = f"TICKET-{orden_id}-{item.get('id')}-{i+1}"
@@ -113,12 +127,12 @@ def webhook_orden_pagada():
                         """,
                         (ticket_id, sku, cliente_email, str(orden_id))
                     )
-                    print(f"Ticket {ticket_id} creado en la base de datos.")
+                    logger.info(f"Ticket {ticket_id} creado en la base de datos.")
 
         db.commit()
 
     except Exception as e:
-        print(f"Error al procesar el pedido: {e}")
+        logger.error(f"Error al procesar el pedido: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
     return jsonify({"status": "success"}), 200
@@ -138,7 +152,7 @@ def verificar_ticket(ticket_id):
             ticket_id = ticket_id[:-1]
         ticket_id = ticket_id.split("/")[-1]
 
-    print(f"Solicitud de verificación para: {ticket_id}") # Log para ver la petición
+    logger.info(f"Solicitud de verificación para: {ticket_id}")
     db = get_db()
     cursor = db.cursor()
 
@@ -168,7 +182,7 @@ def verificar_ticket(ticket_id):
             "mensaje": f"ALERTA: Este ticket (SKU: {ticket['evento_sku']}) YA FUE USADO."
         })
 
-    print(f"Ticket {ticket_id} marcado como usado.")
+    logger.info(f"Ticket {ticket_id} marcado como usado.")
 
     return jsonify({
         "valido": True,
