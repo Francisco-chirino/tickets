@@ -188,6 +188,11 @@ def generar_qr(ticket_id):
 def hello_world():
     return "El servidor de tickets está funcionando correctamente. La base de datos ha sido inicializada."
 
+# --- 5. ENDPOINT: Servir el Escáner ---
+@app.route("/escaner")
+def serve_scanner():
+    return send_file("escaner.html")
+
 
 # --- Ejecución de la App ---
 

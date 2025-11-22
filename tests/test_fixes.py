@@ -114,5 +114,13 @@ class TestTicketSystem(unittest.TestCase):
         self.assertTrue(data['valido'], "Verification failed despite whitespace fix")
         self.assertIn("ACCESO PERMITIDO", data['mensaje'])
 
+    def test_scanner_page_served(self):
+        """
+        Test that the scanner HTML is served at /escaner
+        """
+        response = self.app.get('/escaner')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'Scanner de Eventos v3', response.data)
+
 if __name__ == '__main__':
     unittest.main()

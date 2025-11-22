@@ -121,7 +121,8 @@
 
     <script>
         // --- TU URL DE RENDER ---
-        const API_BASE_URL = "https://tickets-e810.onrender.com";
+        // Usamos ruta relativa para que funcione en cualquier despliegue (PR o Prod)
+        const API_BASE_URL = "";
 
         let html5QrcodeScanner;
         let autoResetTimer; // NUEVO: Timer para auto-reset
