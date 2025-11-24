@@ -23,7 +23,8 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- Configuración ---
 DATABASE = 'tickets.db'
-SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
+# Usamos strip() para eliminar espacios en blanco accidentales al copiar/pegar
+SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET", "").strip()
 
 if not SHOPIFY_API_SECRET:
     logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
@@ -97,7 +98,20 @@ def verificar_webhook(data, hmac_header):
 
     computed_hmac = base64.b64encode(digest)
 
-    return hmac.compare_digest(computed_hmac, hmac_header.encode('utf-8'))
+    # Debugging logs for HMAC failure
+    try:
+        is_valid = hmac.compare_digest(computed_hmac, hmac_header.encode('utf-8'))
+        if not is_valid:
+            logger.warning("------------------------------------------------")
+            logger.warning("FALLO VERIFICACIÓN HMAC")
+            logger.warning(f"Secret Configurado (len): {len(SHOPIFY_API_SECRET)}")
+            logger.warning(f"Header Recibido: {hmac_header}")
+            logger.warning(f"HMAC Calculado:  {computed_hmac.decode('utf-8')}")
+            logger.warning("------------------------------------------------")
+        return is_valid
+    except Exception as e:
+        logger.error(f"Excepción al verificar HMAC: {e}")
+        return False
 
 
 # --- 1. ENDPOINT: El Webhook que escucha a Shopify ---
@@ -124,6 +138,9 @@ def webhook_orden_pagada():
         for item in pedido.get('line_items', []):
             sku = item.get('sku')
             cantidad = item.get('quantity')
+            # Asegurar que sean strings
+            title = str(item.get('title', 'Entrada General'))
+            price = str(item.get('price', '0.00'))
             title = item.get('title', 'Entrada General')
             price = item.get('price', '0.00')
 
@@ -134,6 +151,18 @@ def webhook_orden_pagada():
                 for i in range(cantidad):
                     ticket_id = f"TICKET-{orden_id}-{item.get('id')}-{i+1}"
 
+                    try:
+                        cursor.execute(
+                            """
+                            INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado, tipo_entrada, costo)
+                            VALUES (?, ?, ?, ?, 0, ?, ?)
+                            ON CONFLICT(ticket_id) DO NOTHING
+                            """,
+                            (ticket_id, sku, cliente_email, str(orden_id), title, price)
+                        )
+                        logger.info(f"Ticket {ticket_id} procesado (Insertado o Ignorado).")
+                    except sqlite3.Error as e:
+                        logger.error(f"Error SQL al insertar ticket {ticket_id}: {e}")
                     cursor.execute(
                         """
                         INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado, tipo_entrada, costo)
