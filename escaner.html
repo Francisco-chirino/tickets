@@ -218,11 +218,11 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.valido) {
-                        mostrarResultado("success", data.mensaje);
+                        mostrarResultado("success", data.mensaje, data.tipo_entrada, data.costo);
                         playSound('success');
                     } else {
                         const tipo = data.mensaje && data.mensaje.includes("YA FUE USADO") ? "warning" : "error";
-                        mostrarResultado(tipo, data.mensaje || "Ticket inválido");
+                        mostrarResultado(tipo, data.mensaje || "Ticket inválido", data.tipo_entrada, data.costo);
                         playSound('error');
                     }
                 })
@@ -237,7 +237,7 @@
             // Ignoramos errores de frame vacío para no saturar la consola
         }
 
-        function mostrarResultado(tipo, mensaje = "") {
+        function mostrarResultado(tipo, mensaje = "", tipoEntrada = null, costo = null) {
             clearTimeout(autoResetTimer);
 
             // Ocultar cámara y overlay, mostrar resultado
@@ -250,6 +250,17 @@
             resultCard.className = "absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 animate-pop-in border-4";
             statusIcon.className = "text-6xl mb-4 animate-pulse-icon";
 
+            // Construir el HTML de detalles si existen
+            let detailsHtml = "";
+            if (tipoEntrada || costo) {
+                detailsHtml = `
+                    <div class="mt-4 p-3 bg-gray-700 rounded-lg w-full max-w-xs">
+                        ${tipoEntrada ? `<p class="text-sm text-gray-400">Tipo de Entrada</p><p class="text-lg font-semibold text-white mb-2">${tipoEntrada}</p>` : ''}
+                        ${costo ? `<p class="text-sm text-gray-400">Costo</p><p class="text-lg font-semibold text-white">$${costo}</p>` : ''}
+                    </div>
+                `;
+            }
+
             if (tipo === "success") {
                 resultCard.classList.add("bg-green-900", "border-green-500");
                 statusIcon.innerHTML = "✅";
@@ -259,7 +270,9 @@
                 resultCard.classList.add("bg-yellow-900", "border-yellow-500");
                 statusIcon.innerHTML = "⚠️";
                 statusTitle.textContent = "YA FUE USADO";
-                statusTitle.className = "text-2xl font-bold text-yellow-300 mb-2";
+                statusTitle.className = "text-3xl font-extrabold text-yellow-400 mb-2 uppercase tracking-wide";
+                // Aumentar la visibilidad de la alerta
+                if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200, 100, 200]);
             } else if (tipo === "error") {
                 resultCard.classList.add("bg-red-900", "border-red-500");
                 statusIcon.innerHTML = "❌";
@@ -270,9 +283,35 @@
                 statusIcon.innerHTML = `<div class="w-12 h-12 border-4 border-t-blue-400 border-gray-600 rounded-full animate-spin-fast mx-auto"></div>`;
                 statusTitle.textContent = "Verificando...";
                 statusTitle.className = "text-2xl font-bold text-white mb-2";
+                detailsHtml = ""; // No mostrar detalles cargando
             }
 
-            statusMsg.textContent = mensaje;
+            // Usamos innerHTML para permitir saltos de línea y estructura en el mensaje si es simple,
+            // pero aquí mensaje viene del backend.
+            // Si tenemos detalles (detailsHtml), los añadimos.
+
+            // Limpiamos el mensaje de saltos de línea si ya mostramos los detalles en la tarjeta dedicada
+            let displayMsg = mensaje;
+            if (detailsHtml && (tipo === "success" || tipo === "warning")) {
+                // Si mostramos la tarjeta de detalles, podemos simplificar el mensaje principal si es redundante
+                // Pero el backend manda todo junto. Lo dejaremos como está o mostraremos solo la parte relevante.
+                // Por ahora mostramos todo.
+            }
+
+            statusMsg.textContent = displayMsg;
+
+            // Insertar detalles en el DOM
+            // Eliminamos detalles anteriores si existen
+            const oldDetails = document.getElementById('ticket-details');
+            if (oldDetails) oldDetails.remove();
+
+            if (detailsHtml) {
+                const detailsContainer = document.createElement('div');
+                detailsContainer.id = 'ticket-details';
+                detailsContainer.innerHTML = detailsHtml;
+                // Insert after message
+                statusMsg.parentNode.insertBefore(detailsContainer, statusMsg.nextSibling);
+            }
 
             // Auto-reseteo
             if (tipo !== "loading") {
