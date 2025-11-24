@@ -180,6 +180,7 @@ def verificar_ticket(ticket_id):
     ticket = cursor.fetchone()
 
     if not ticket:
+        logger.warning(f"Ticket NO ENCONTRADO en BD: {ticket_id}")
         # Permitir tickets de prueba si empiezan con TEST (para debugging cuando la BD está vacía)
         # También permitimos el ticket específico del usuario para que pueda probar sin base de datos
         debug_tickets = [
