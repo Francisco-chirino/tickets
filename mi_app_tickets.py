@@ -82,6 +82,11 @@ def init_db():
 # --- Función de Seguridad del Webhook ---
 def verificar_webhook(data, hmac_header):
     """Verifica que la petición venga de Shopify"""
+    # Bypass para desarrollo/debugging si se configura la variable de entorno
+    if os.environ.get("SKIP_SHOPIFY_VERIFICATION") == "true":
+        logger.warning("⚠️ SEGURIDAD: Saltando verificación de webhook por configuración SKIP_SHOPIFY_VERIFICATION.")
+        return True
+
     if not hmac_header:
         logger.error("Error: No se encontró la cabecera HMAC.")
         return False
@@ -104,6 +109,8 @@ def verificar_webhook(data, hmac_header):
         if not is_valid:
             logger.warning("------------------------------------------------")
             logger.warning("FALLO VERIFICACIÓN HMAC")
+            logger.warning("POSIBLE CAUSA: Estás usando el 'App Secret' en lugar de la 'Webhook Signing Key'.")
+            logger.warning("Revisa en Shopify: Configuración > Notificaciones > (Abajo del todo) Webhooks > Firma.")
             logger.warning(f"Secret Configurado (len): {len(SHOPIFY_API_SECRET)}")
             logger.warning(f"Header Recibido: {hmac_header}")
             logger.warning(f"HMAC Calculado:  {computed_hmac.decode('utf-8')}")
@@ -143,6 +150,18 @@ def webhook_orden_pagada():
             price = str(item.get('price', '0.00'))
             title = item.get('title', 'Entrada General')
             price = item.get('price', '0.00')
+
+            # Extraer título y variante para "tipo_entrada"
+            main_title = str(item.get('title', 'Entrada General'))
+            variant_title = str(item.get('variant_title', ''))
+
+            # Si hay variante, la concatenamos: "Evento X - VIP"
+            if variant_title and variant_title.lower() != 'none' and variant_title.strip() != '':
+                title = f"{main_title} ({variant_title})"
+            else:
+                title = main_title
+
+            price = str(item.get('price', '0.00'))
 
             # (Usaremos la lógica de SKU por ahora, es más seguro)
             if sku:
