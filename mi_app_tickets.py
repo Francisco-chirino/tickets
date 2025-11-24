@@ -145,6 +145,11 @@ def webhook_orden_pagada():
         for item in pedido.get('line_items', []):
             sku = item.get('sku')
             cantidad = item.get('quantity')
+            # Asegurar que sean strings
+            title = str(item.get('title', 'Entrada General'))
+            price = str(item.get('price', '0.00'))
+            title = item.get('title', 'Entrada General')
+            price = item.get('price', '0.00')
 
             # Extraer título y variante para "tipo_entrada"
             main_title = str(item.get('title', 'Entrada General'))
@@ -177,6 +182,15 @@ def webhook_orden_pagada():
                         logger.info(f"Ticket {ticket_id} procesado (Insertado o Ignorado).")
                     except sqlite3.Error as e:
                         logger.error(f"Error SQL al insertar ticket {ticket_id}: {e}")
+                    cursor.execute(
+                        """
+                        INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado, tipo_entrada, costo)
+                        VALUES (?, ?, ?, ?, 0, ?, ?)
+                        ON CONFLICT(ticket_id) DO NOTHING
+                        """,
+                        (ticket_id, sku, cliente_email, str(orden_id), title, price)
+                    )
+                    logger.info(f"Ticket {ticket_id} creado en la base de datos.")
 
         db.commit()
 
