@@ -23,7 +23,8 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 
 # --- Configuración ---
 DATABASE = 'tickets.db'
-SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET")
+# Usamos strip() para eliminar espacios en blanco accidentales al copiar/pegar
+SHOPIFY_API_SECRET = os.environ.get("SHOPIFY_API_SECRET", "").strip()
 
 if not SHOPIFY_API_SECRET:
     logger.warning("SHOPIFY_API_SECRET no está configurado. Los webhooks fallarán.")
@@ -46,7 +47,7 @@ def close_connection(exception):
         db.close()
 
 def init_db():
-    """Crea la tabla de la base de datos si no existe"""
+    """Crea la tabla de la base de datos si no existe y aplica migraciones"""
     with app.app_context():
         db = get_db()
         cursor = db.cursor()
@@ -62,12 +63,30 @@ def init_db():
             )
             """
         )
+
+        # Migración: Agregar columnas tipo_entrada y costo si no existen
+        cursor.execute("PRAGMA table_info(tickets)")
+        columns = [info[1] for info in cursor.fetchall()]
+
+        if 'tipo_entrada' not in columns:
+            cursor.execute("ALTER TABLE tickets ADD COLUMN tipo_entrada TEXT")
+            logger.info("Columna 'tipo_entrada' agregada.")
+
+        if 'costo' not in columns:
+            cursor.execute("ALTER TABLE tickets ADD COLUMN costo TEXT")
+            logger.info("Columna 'costo' agregada.")
+
         db.commit()
         logger.info("Base de datos inicializada y tabla 'tickets' asegurada.")
 
 # --- Función de Seguridad del Webhook ---
 def verificar_webhook(data, hmac_header):
     """Verifica que la petición venga de Shopify"""
+    # Bypass para desarrollo/debugging si se configura la variable de entorno
+    if os.environ.get("SKIP_SHOPIFY_VERIFICATION") == "true":
+        logger.warning("⚠️ SEGURIDAD: Saltando verificación de webhook por configuración SKIP_SHOPIFY_VERIFICATION.")
+        return True
+
     if not hmac_header:
         logger.error("Error: No se encontró la cabecera HMAC.")
         return False
@@ -84,7 +103,22 @@ def verificar_webhook(data, hmac_header):
 
     computed_hmac = base64.b64encode(digest)
 
-    return hmac.compare_digest(computed_hmac, hmac_header.encode('utf-8'))
+    # Debugging logs for HMAC failure
+    try:
+        is_valid = hmac.compare_digest(computed_hmac, hmac_header.encode('utf-8'))
+        if not is_valid:
+            logger.warning("------------------------------------------------")
+            logger.warning("FALLO VERIFICACIÓN HMAC")
+            logger.warning("POSIBLE CAUSA: Estás usando el 'App Secret' en lugar de la 'Webhook Signing Key'.")
+            logger.warning("Revisa en Shopify: Configuración > Notificaciones > (Abajo del todo) Webhooks > Firma.")
+            logger.warning(f"Secret Configurado (len): {len(SHOPIFY_API_SECRET)}")
+            logger.warning(f"Header Recibido: {hmac_header}")
+            logger.warning(f"HMAC Calculado:  {computed_hmac.decode('utf-8')}")
+            logger.warning("------------------------------------------------")
+        return is_valid
+    except Exception as e:
+        logger.error(f"Excepción al verificar HMAC: {e}")
+        return False
 
 
 # --- 1. ENDPOINT: El Webhook que escucha a Shopify ---
@@ -111,23 +145,29 @@ def webhook_orden_pagada():
         for item in pedido.get('line_items', []):
             sku = item.get('sku')
             cantidad = item.get('quantity')
+            # Asegurar que sean strings
+            title = str(item.get('title', 'Entrada General'))
+            price = str(item.get('price', '0.00'))
 
             # (Usaremos la lógica de SKU por ahora, es más seguro)
             if sku:
-                logger.info(f"Producto '{item.get('title')}' (SKU: {sku}) es un ticket. Cantidad: {cantidad}")
+                logger.info(f"Producto '{title}' (SKU: {sku}) es un ticket. Cantidad: {cantidad}. Precio: {price}")
 
                 for i in range(cantidad):
                     ticket_id = f"TICKET-{orden_id}-{item.get('id')}-{i+1}"
 
-                    cursor.execute(
-                        """
-                        INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado)
-                        VALUES (?, ?, ?, ?, 0)
-                        ON CONFLICT(ticket_id) DO NOTHING
-                        """,
-                        (ticket_id, sku, cliente_email, str(orden_id))
-                    )
-                    logger.info(f"Ticket {ticket_id} creado en la base de datos.")
+                    try:
+                        cursor.execute(
+                            """
+                            INSERT INTO tickets (ticket_id, evento_sku, cliente_email, orden_id, usado, tipo_entrada, costo)
+                            VALUES (?, ?, ?, ?, 0, ?, ?)
+                            ON CONFLICT(ticket_id) DO NOTHING
+                            """,
+                            (ticket_id, sku, cliente_email, str(orden_id), title, price)
+                        )
+                        logger.info(f"Ticket {ticket_id} procesado (Insertado o Ignorado).")
+                    except sqlite3.Error as e:
+                        logger.error(f"Error SQL al insertar ticket {ticket_id}: {e}")
 
         db.commit()
 
@@ -165,6 +205,7 @@ def verificar_ticket(ticket_id):
     ticket = cursor.fetchone()
 
     if not ticket:
+        logger.warning(f"Ticket NO ENCONTRADO en BD: {ticket_id}")
         # Permitir tickets de prueba si empiezan con TEST (para debugging cuando la BD está vacía)
         # También permitimos el ticket específico del usuario para que pueda probar sin base de datos
         debug_tickets = [
@@ -182,10 +223,16 @@ def verificar_ticket(ticket_id):
             "mensaje": "ACCESO DENEGADO: Ticket inválido o no existe."
         })
 
+    # Obtener detalles extra (tipo y costo)
+    tipo_entrada = ticket["tipo_entrada"] if "tipo_entrada" in ticket.keys() and ticket["tipo_entrada"] else "Entrada General"
+    costo = ticket["costo"] if "costo" in ticket.keys() and ticket["costo"] else "N/A"
+
     if ticket["usado"]:
         return jsonify({
             "valido": False,
-            "mensaje": f"ALERTA: Este ticket (SKU: {ticket['evento_sku']}) YA FUE USADO."
+            "mensaje": f"ALERTA: Este ticket YA FUE USADO.\nTipo: {tipo_entrada}\nSKU: {ticket['evento_sku']}",
+            "tipo_entrada": tipo_entrada,
+            "costo": costo
         })
 
     # Fix: Atomic update to prevent race condition
@@ -195,14 +242,18 @@ def verificar_ticket(ticket_id):
     if cursor.rowcount == 0:
         return jsonify({
             "valido": False,
-            "mensaje": f"ALERTA: Este ticket (SKU: {ticket['evento_sku']}) YA FUE USADO."
+            "mensaje": f"ALERTA: Este ticket YA FUE USADO.\nTipo: {tipo_entrada}\nSKU: {ticket['evento_sku']}",
+            "tipo_entrada": tipo_entrada,
+            "costo": costo
         })
 
     logger.info(f"Ticket {ticket_id} marcado como usado.")
 
     return jsonify({
         "valido": True,
-        "mensaje": f"ACCESO PERMITIDO: Ticket válido (SKU: {ticket['evento_sku']})."
+        "mensaje": f"ACCESO PERMITIDO.\nTipo: {tipo_entrada}\nCosto: ${costo}",
+        "tipo_entrada": tipo_entrada,
+        "costo": costo
     })
 
 # --- 3. ENDPOINT: El Cliente genera/ve su QR ---
